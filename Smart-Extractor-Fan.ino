@@ -364,15 +364,15 @@ void loop() {
   if (countPUMPbuttontime>0){
     countPUMPbuttontime--;
     PUMPforcedMODE=true;
-    if (relayState2==HIGH){
-      relayState2=LOW;
+    if (relayState2==LOW){
+      relayState2=HIGH;
       setRelayState2();
       DEBUG_PRINT(F("INFO: PUMPforcedMODE: "));         DEBUG_PRINTLN(PUMPforcedMODE);
     }
   }else{
     PUMPforcedMODE=false;
-    if (relayState2==LOW){
-      relayState2=HIGH;
+    if (relayState2==HIGH){
+      relayState2=LOW;
       setRelayState2();
       DEBUG_PRINT(F("INFO: PUMPforcedMODE: "));         DEBUG_PRINTLN(PUMPforcedMODE);
     }
