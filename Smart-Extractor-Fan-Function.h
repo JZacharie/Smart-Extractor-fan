@@ -1,4 +1,3 @@
-
 #define DHTSENSOR
 #ifdef DHTSENSOR
   #include <DHT.h>
@@ -7,29 +6,31 @@
   #define DHTTYPE DHT22
   //DHT22 Sensor
   uint32_t delayMS;                   //Readtime for DHT22
-  int nbread = 60;                    // ToreducethepublicationonMQTT
+  int nbread = 600;                   // ToreducethepublicationonMQTT
   DHT_Unified dht(DHTPIN, DHTTYPE);
-  String temperature, humidite; //for string add
-  char *temperaturec; //Value compatible only with MQTT
-  char *humiditec;    //Value compatible only with MQTT
-  float humiditySet1; // stop  VMC when lower than xx%
-  float humiditySet2; // Start VMC when upper than yy%
-  float savehumiditySet2;
-  float floatreadhumidite;
+  float HUM_L1; // stop  VMC when lower than xx%
+  float HUM_L2; // Start VMC when upper than yy%
+  float TEMP_R;
+  float HUM_R;
 #endif
 
-  int VMCreading  = digitalRead(VMC_PIN);
-  int PUMPreading = digitalRead(PUMP_PIN);
+int  VMC_B_COUNT  = 0;
+bool VMC_B_STAT   = 0; 
+int  VMC_B_TIME   = 0;
+bool VMC_C_STAT   = 0;
+bool VMCbuttonState;
+//int countVMCbuttontime=0;
 
-int  VMCbuttonState     = 0; // HIGH: opened switch
-//bool VMCforcedMODE    = false;
-int VMCbuttontime       = 0;
-int countVMCbuttontime  = 0;
-
-int  PUMPbuttonState    = 0; // HIGH: opened switch
-//bool PUMPforcedMODE   = false;
-int  PUMPbuttontime     = 0;
-int countPUMPbuttontime = 0;
+int  PUMP_B_COUNT = 0;
+bool PUMP_B_STAT  = 0;
+int  PUMP_B_TIME  = 0;
+bool PUMP_C_STAT  = 0; 
+bool PUMPbuttonState;
+//int countPUMPbuttontime=0;
+  
+// flag for saving data
+bool shouldSaveConfig = false;
+//int NbCycleBeforSendMQTT= 600;
 
 #define           LED
 #ifdef LED
@@ -37,12 +38,6 @@ int countPUMPbuttontime = 0;
     #ifdef __AVR__
       #include <avr/power.h>
     #endif
-    // Which pin on the Arduino is connected to the NeoPixels?
-    // On a Trinket or Gemma we suggest changing this to 1
-
-    // When we setup the NeoPixel library, we tell it how many pixels, and which pin to use to send signals.
-    // Note that for older NeoPixel strips you might need to change the third parameter--see the strandtest
-    // example for more information on possible values.
     Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, STRIP_PIN, NEO_GRB + NEO_KHZ800);
     int delayval = 500; // delay for half a second
 #endif
@@ -66,55 +61,33 @@ int countPUMPbuttontime = 0;
 
 // MQTT
 char              MQTT_CLIENT_ID[7]                                  = {0};
-char              MQTT_SWITCH_STATE_TOPIC1[STRUCT_CHAR_ARRAY_SIZE]   = {0};
-char              MQTT_SWITCH_STATE_TOPIC2[STRUCT_CHAR_ARRAY_SIZE]   = {0};
-char              MQTT_STAT_TEMP[STRUCT_CHAR_ARRAY_SIZE]             = {0};
-char              MQTT_STAT_HUMIDITY[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_GET_HUMIDITY1[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_GET_HUMIDITY2[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_SET_HUMIDITY1[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_SET_HUMIDITY2[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-
-char              MQTT_SET_DELAY_PUMP[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_GET_DELAY_PUMP[STRUCT_CHAR_ARRAY_SIZE]         = {0};
-char              MQTT_SET_DELAY_VMC[STRUCT_CHAR_ARRAY_SIZE]          = {0};
-char              MQTT_GET_DELAY_VMC[STRUCT_CHAR_ARRAY_SIZE]          = {0};
-
+char              MQTT_GET_TOPIC[STRUCT_CHAR_ARRAY_SIZE]             = {0};
+char              MQTT_SET_TOPIC[STRUCT_CHAR_ARRAY_SIZE]             = {0};
 char              MQTT_STAT_ERROR[STRUCT_CHAR_ARRAY_SIZE]            = {0};
-char              MQTT_SWITCH_COMMAND_TOPIC1[STRUCT_CHAR_ARRAY_SIZE] = {0};
-char              MQTT_SWITCH_COMMAND_TOPIC2[STRUCT_CHAR_ARRAY_SIZE] = {0};
 
-
-
-char              mqtt_server[STRUCT_CHAR_ARRAY_SIZE] = {0};
-char              mqtt_user[STRUCT_CHAR_ARRAY_SIZE] = {0};
-char              mqtt_password[STRUCT_CHAR_ARRAY_SIZE] = {0};
-char              mqtt_port[STRUCT_CHAR_ARRAY_SIZE] = {0};
+// Setting for WIFI
+char              mqtt_server[STRUCT_CHAR_ARRAY_SIZE]                = {0};
+char              mqtt_user[STRUCT_CHAR_ARRAY_SIZE]                  = {0};
+char              mqtt_password[STRUCT_CHAR_ARRAY_SIZE]              = {0};
+char              mqtt_port[STRUCT_CHAR_ARRAY_SIZE]                  = {0};
+char              mqttHUM_L1[STRUCT_CHAR_ARRAY_SIZE]                 = {0};
+char              mqttHUM_L2[STRUCT_CHAR_ARRAY_SIZE]                 = {0};
+char              mqttPUMP_B_TIME[STRUCT_CHAR_ARRAY_SIZE]            = {0};
+char              mqttVMC_B_TIME[STRUCT_CHAR_ARRAY_SIZE]             = {0};
 
 char*             MQTT_SWITCH_ON_PAYLOAD                             = "On";
 char*             MQTT_SWITCH_OFF_PAYLOAD                            = "Off";
 
-    char charstrhumiditySet1[50];
-    char charstrhumiditySet2[50];
-    char charVMCbuttontime[50];
-    char charPUMPbuttontime[50];
-    
-    String strhumiditySet1;
-    String strhumiditySet2;
-    String strVMCbuttontime;
-    String strPUMPbuttontime;
-    
-
 // Settings for VMC
 typedef struct {
-  char            mqttUser[STRUCT_CHAR_ARRAY_SIZE]                  = "";//{0};
-  char            mqttPassword[STRUCT_CHAR_ARRAY_SIZE]              = "";//{0};
-  char            mqttServer[STRUCT_CHAR_ARRAY_SIZE]                = "";//{0};
-  char            mqttPort[6]                                       = "";//{0};
-  char            humiditySet1[6]                                   = "";//{0};
-  char            humiditySet2[6]                                   = "";//{0};
-  char            PUMPbuttontime[STRUCT_CHAR_ARRAY_SIZE]            = "5000";//{0};
-  char            VMCbuttontime[STRUCT_CHAR_ARRAY_SIZE]             = "5000";//{0};
+    char            mqttUser[STRUCT_CHAR_ARRAY_SIZE]                 = "";
+    char            mqttPassword[STRUCT_CHAR_ARRAY_SIZE]             = "";
+    char            mqttServer[STRUCT_CHAR_ARRAY_SIZE]               = "";
+    char            mqttPort[6]                                      = "";
+    float           HUM_L1                                           = 49;
+    float           HUM_L2                                           = 51;
+    int             PUMP_B_TIME                                      = 5000;
+    int             VMC_B_TIME                                       = 5000;
 } Settings;
 
 enum CMD {
@@ -125,31 +98,19 @@ enum CMD {
 
 volatile uint8_t cmd = CMD_NOT_DEFINED;
 
-uint8_t           relayState1                                       = HIGH; // HIGH: closed switch
-uint8_t           relayState2                                       = HIGH; // HIGH: closed switch
-uint8_t           buttonState                                       = HIGH; // HIGH: opened switch
-uint8_t           currentButtonState                                = buttonState;
-long              buttonStartPressed                                = 0;
-long              buttonDurationPressed                             = 0;
-uint8_t           pirState                                          = LOW; 
-uint8_t           currentPirState                                   = pirState;
-
-uint8_t           VMCforcedMODE                                     = LOW; 
+// To debounce the Button
 int               VMClastButtonState                                = LOW;      // the previous reading from the input pin
 long              VMClastDebounceTime                               = 0;        // the last time the output pin was toggled
 long              VMCdebounceDelay                                  = 2;        // the debounce time; increase if the output flickers
 
-uint8_t           PUMPforcedMODE                                    = LOW; 
 int               PUMPlastButtonState                               = LOW;      // the previous reading from the input pin
 long              PUMPlastDebounceTime                              = 0;        // the last time the output pin was toggled
 long              PUMPdebounceDelay                                 = 2;        // the debounce time; increase if the output flickers
-
 
 Settings          settings;
 Ticker            ticker;
 WiFiClientSecure  wifiClient;
 PubSubClient      mqttClient(wifiClient);
-
 
 #ifdef LED
 void setled(int a, int b, int c){
@@ -161,81 +122,49 @@ void setled(int a, int b, int c){
 }
 #endif
 
-/*    Function called to restart the switch  */
-void restart() {
+void restart() { /*    Function called to restart the switch  */
   DEBUG_PRINTLN(F("INFO: Restart..."));
     ESP.reset();
-  delay(1000);
+  delay(100);
 }
 
-/*    Function called to reset the configuration of the switch  */
-void reset() {
+void Subscribe_MQTT(){
+  if (mqttClient.subscribe(MQTT_SET_TOPIC)) {
+    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_GET_TOPIC);
+  } else {
+    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));    DEBUG_PRINTLN(MQTT_GET_TOPIC);
+  }
+}
+
+void reset() {             /*    Function called to reset the configuration of the switch  */
   DEBUG_PRINTLN(F("INFO: Reset..."));
-  //WiFi.disconnect();
-  ESP.reset();
-  delay(1000);
+//  WiFi.disconnect();
+//  ESP.reset();
+//  delay(1000);
 }
 
-/*  Function called to connect/reconnect to the MQTT broker  */
-void reconnect() {
+void reconnect() {         /*  Function called to connect/reconnect to the MQTT broker  */
   uint8_t i = 0;
   while (!mqttClient.connected()) {
     if (mqttClient.connect(MQTT_CLIENT_ID, settings.mqttUser, settings.mqttPassword)) {
       DEBUG_PRINTLN(F("INFO: The client is successfully connected to the MQTT broker"));
+        delay(100);
+        Subscribe_MQTT();
     } else {
       DEBUG_PRINTLN(F("ERROR: The connection to the MQTT broker failed"));
       DEBUG_PRINT(F("Username: "));      DEBUG_PRINTLN(settings.mqttUser);
       DEBUG_PRINT(F("Broker: "));        DEBUG_PRINTLN(settings.mqttServer);
-      delay(10);
+      delay(100);
       if (i == 3) {
         reset();
       }
       i++;
     }
   }
-
-
-//Subscribe MQTT
-  if (mqttClient.subscribe(MQTT_SWITCH_COMMAND_TOPIC1)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SWITCH_COMMAND_TOPIC1);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));    DEBUG_PRINTLN(MQTT_SWITCH_COMMAND_TOPIC1);
-  }
-  
-  if (mqttClient.subscribe(MQTT_SWITCH_COMMAND_TOPIC2)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SWITCH_COMMAND_TOPIC2);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));    DEBUG_PRINTLN(MQTT_SWITCH_COMMAND_TOPIC2);
-  }
-
-  if (mqttClient.subscribe(MQTT_SET_HUMIDITY1)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SET_HUMIDITY1);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));  DEBUG_PRINTLN(MQTT_SET_HUMIDITY1);
-  }
-  
-  if (mqttClient.subscribe(MQTT_SET_HUMIDITY2)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SET_HUMIDITY2);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));    DEBUG_PRINTLN(MQTT_SET_HUMIDITY2);
-  }
-
-  if (mqttClient.subscribe(MQTT_SET_DELAY_PUMP)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SET_DELAY_PUMP);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed.   Topic: "));  DEBUG_PRINTLN(MQTT_SET_DELAY_PUMP);
-  }
-  
-  if (mqttClient.subscribe(MQTT_SET_DELAY_VMC)) {
-    DEBUG_PRINT(F("INFO: Sending the MQTT subscribe succeeded. Topic: "));  DEBUG_PRINTLN(MQTT_SET_DELAY_VMC);
-  } else {
-    DEBUG_PRINT(F("ERROR: Sending the MQTT subscribe failed. Topic: "));    DEBUG_PRINTLN(MQTT_SET_DELAY_VMC);
-  }
-
 }
 
-void initDHTSENSOR(){
-    // Initialize device.
+void initDHTSENSOR(){     // Initialize device.
+
   dht.begin();
   Serial.println("DHTxx Unified Sensor Example");
   // Print temperature sensor details.
@@ -267,7 +196,7 @@ void initDHTSENSOR(){
 
 void mqtt_publish(char MQTT_BUFFER_TOPIC[STRUCT_CHAR_ARRAY_SIZE]  , char*    MQTT_BUFFER_PAYLOAD  ) {
     if (mqttClient.publish(MQTT_BUFFER_TOPIC, MQTT_BUFFER_PAYLOAD , true)) {
-      DEBUG_PRINT(F("INFO: MQTT message publish succeeded. Topic: "));      DEBUG_PRINT(MQTT_BUFFER_TOPIC);   DEBUG_PRINT(F(" : Payload: "));                                          DEBUG_PRINTLN(MQTT_BUFFER_PAYLOAD);
+      DEBUG_PRINT(F("INFO: MQTT message publish succeeded. Topic: "));      DEBUG_PRINT(MQTT_BUFFER_TOPIC);      DEBUG_PRINT(F(" Payload: ")); DEBUG_PRINTLN(MQTT_BUFFER_PAYLOAD);
       #ifdef LED
           setled(0,150,0); //Green
       #endif
@@ -279,9 +208,9 @@ void mqtt_publish(char MQTT_BUFFER_TOPIC[STRUCT_CHAR_ARRAY_SIZE]  , char*    MQT
     }
 }
 
-/*  Function called to verify the fingerprint of the MQTT server certificate */
-void verifyFingerprint() {
-  DEBUG_PRINT(F("INFO: Connecting to "));  DEBUG_PRINTLN(settings.mqttServer);
+void verifyFingerprint() { /*  Function called to verify the fingerprint of the MQTT server certificate */
+  DEBUG_PRINT(F("INFO: Connecting to "));
+  DEBUG_PRINTLN(settings.mqttServer);
 
   if (!wifiClient.connect(settings.mqttServer, atoi(settings.mqttPort))) {
     DEBUG_PRINTLN(F("ERROR: Connection failed. Halting execution"));
@@ -296,73 +225,47 @@ void verifyFingerprint() {
   }
 }
 
-/*  Function called to publish the state of the Sonoff relay */
-void publishSwitchState() {
-  if (relayState1 == HIGH) {
-    mqtt_publish(MQTT_SWITCH_STATE_TOPIC1, MQTT_SWITCH_ON_PAYLOAD);
-  } else {
-    mqtt_publish(MQTT_SWITCH_STATE_TOPIC2, MQTT_SWITCH_OFF_PAYLOAD);
-  }
+void setRelayStateandpublish() {
+   
+   //Affect les variables
+   digitalWrite(RELAY1_PIN, PUMP_C_STAT);
+   digitalWrite(RELAY2_PIN, VMC_C_STAT);
+   
+   // Prepare le JSON
+   StaticJsonBuffer<1000> jsonBuffer;
+   JsonObject& root = jsonBuffer.createObject();
+
+   root["HUM_L1"]      = HUM_L1;
+   root["HUM_L2"]      = HUM_L2;
+   root["HUM_R"]       = HUM_R;
+   root["TEMP_R"]      = TEMP_R;
+   root["VMC_C_STAT"]  = VMC_C_STAT;
+   root["VMC_B_TIME"]  = VMC_B_TIME;
+   root["VMC_B_STAT"]  = VMC_B_STAT;
+   root["PUMP_C_STAT"] = PUMP_C_STAT;
+   root["PUMP_B_TIME"] = PUMP_B_TIME;
+   root["PUMP_B_STAT"] = PUMP_B_STAT;
+   
+   char MQTTBUFFER[1000];
+   root.printTo(MQTTBUFFER, sizeof(MQTTBUFFER));
+   mqtt_publish(MQTT_GET_TOPIC,MQTTBUFFER);
 }
 
-void publishSwitchState2() {
-  if (relayState2 == HIGH) {
-    mqtt_publish(MQTT_SWITCH_STATE_TOPIC2, MQTT_SWITCH_ON_PAYLOAD);
-  } else {
-    mqtt_publish(MQTT_SWITCH_STATE_TOPIC2, MQTT_SWITCH_OFF_PAYLOAD);
-  }
-}
-
-/*  Function called to set the state of the relay  */
-
-#ifdef NODEMCU 
-  void setRelayState1() {
-    digitalWrite(RELAY_PIN, !relayState1);
-    publishSwitchState();
-  }
-
-  void setRelayState2() {
-    digitalWrite(RELAY2_PIN, !relayState2);
-    publishSwitchState2();
-  }
-#else //Inverted for SONOF
-  void setRelayState1() {
-    digitalWrite(RELAY_PIN, !relayState1);
-    digitalWrite(LED_PIN, (relayState1 + 1) % 2);
-    publishSwitchState();
-  }
-  void setRelayState2() {
-    digitalWrite(RELAY2_PIN, !relayState2);
-    publishSwitchState2();
-  }
-#endif
-
-
-/*  Function called when the button is pressed/released */
-void buttonStateChangedISR() {
+void buttonStateChangedISR() { /*  Function called when the button is pressed/released */
   cmd = CMD_BUTTON_STATE_CHANGED;
 }
 
-/*    Function called when the PIR sensor detects the biginning/end of a mouvement  */
- #ifdef PIR
-void pirStateChangedISR() {
+#ifdef PIR
+void pirStateChangedISR() { /*    Function called when the PIR sensor detects the biginning/end of a mouvement  */
   cmd = CMD_PIR_STATE_CHANGED;
 }
 #endif
 
-
-
-
-/*   Function called to toggle the state of the LED  */
-void tick() {
+void tick() { /*   Function called to toggle the state of the LED  */
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 }
 
-// flag for saving data
-bool shouldSaveConfig = false;
-
-// callback notifying us of the need to save config
-void saveConfigCallback () {
+void saveConfigCallback () { // callback notifying us of the need to save config
   shouldSaveConfig = true;
 }
 
@@ -371,43 +274,100 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 }
 
 void saveconfig(){
-    char charstrhumiditySet1[50];
-    char charstrhumiditySet2[50];
-    char charVMCbuttontime[50];
-    char charPUMPbuttontime[50];
-
-    DEBUG_PRINTLN("---------Start Saving configue");
-    
-    strhumiditySet1=String(humiditySet1);
-    strhumiditySet2=String(humiditySet2);
-    strVMCbuttontime=String(VMCbuttontime);
-    strPUMPbuttontime=String(PUMPbuttontime);
-    
-    strhumiditySet1.toCharArray  (charstrhumiditySet1, 50); 
-    strhumiditySet2.toCharArray  (charstrhumiditySet2, 50);
-    strVMCbuttontime.toCharArray (charVMCbuttontime,   50);
-    strPUMPbuttontime.toCharArray(charPUMPbuttontime,  50); 
-      
-    strcpy(settings.humiditySet1,   charstrhumiditySet1);
-    strcpy(settings.humiditySet2,   charstrhumiditySet2);
-    strcpy(settings.VMCbuttontime,  charVMCbuttontime);
-    strcpy(settings.PUMPbuttontime, charPUMPbuttontime);
-    
-    DEBUG_PRINT(F("settings.mqttServer: "));       DEBUG_PRINTLN(settings.mqttServer);
-    DEBUG_PRINT(F("settings.mqttUser: "));         DEBUG_PRINTLN(settings.mqttUser);
-    //DEBUG_PRINT(F("settings.mqttPassword: "));   DEBUG_PRINTLN(settings.mqttPassword);
-    DEBUG_PRINT(F("settings.mqttPort: "));         DEBUG_PRINTLN(settings.mqttPort);
-    DEBUG_PRINT(F("settings.humiditySet1: "));     DEBUG_PRINTLN(settings.humiditySet1);
-    DEBUG_PRINT(F("settings.humiditySet2: "));     DEBUG_PRINTLN(settings.humiditySet2);            
-    DEBUG_PRINT(F("settings.PUMPbuttontime: "));   DEBUG_PRINTLN(settings.PUMPbuttontime);
-    DEBUG_PRINT(F("settings.VMCbuttontime: "));    DEBUG_PRINTLN(settings.VMCbuttontime);        
-    
-    savehumiditySet2=humiditySet2; // For force Mode
-    
+    settings.HUM_L1      = HUM_L1;
+    settings.HUM_L2      = HUM_L2;
+    settings.VMC_B_TIME  = VMC_B_TIME;
+    settings.PUMP_B_TIME = PUMP_B_TIME;
     EEPROM.begin(512);
     EEPROM.put(0, settings);
     EEPROM.end();
-    DEBUG_PRINTLN("---------END Saving configue");
 }
 
+void pump(){
+  if (PUMP_B_STAT==HIGH && PUMP_C_STAT==HIGH){  
+       DEBUG_PRINT("Passage en mode force de la POMPE pour ");  DEBUG_PRINTLN(PUMP_B_TIME); 
+       PUMP_C_STAT = LOW;      
+       setRelayStateandpublish();    
+       PUMP_B_COUNT=PUMP_B_TIME;
+  }
+  if (PUMP_B_COUNT > 0){
+      PUMP_B_COUNT--;
+      if (PUMP_B_COUNT==0){
+        DEBUG_PRINTLN("Passage en mode non force de la POMPE "); 
+        PUMP_C_STAT = HIGH; 
+        setRelayStateandpublish();    
+      }
+  }
+}
 
+void vmc(){
+  if (VMC_B_STAT==HIGH && VMC_C_STAT == HIGH){      
+      DEBUG_PRINT("Passage en mode force de la VMC pour ");     DEBUG_PRINTLN(VMC_B_TIME); 
+      VMC_C_STAT = LOW;    
+      setRelayStateandpublish();
+      VMC_B_COUNT=VMC_B_TIME;    
+  }
+  if (VMC_B_COUNT >0) {       
+      VMC_B_COUNT--;
+      if (VMC_B_COUNT==0) {
+        DEBUG_PRINTLN("Passage en mode non force de la VMC "); 
+        VMC_C_STAT = HIGH;     
+        setRelayStateandpublish();    
+      }
+  }
+  
+  if (VMC_B_STAT==LOW && VMC_B_COUNT == 0){    
+    if (HUM_R>HUM_L2 && VMC_C_STAT == HIGH ){  
+          VMC_C_STAT  = LOW;                   
+          DEBUG_PRINT(F("HUM_R>HUM_L2: "));    DEBUG_PRINT(HUM_R);DEBUG_PRINT(">");  DEBUG_PRINTLN(HUM_L2); 
+          setRelayStateandpublish(); 
+    }
+    if (HUM_R<HUM_L1 && VMC_C_STAT == LOW && HUM_R > 0 ) { 
+          VMC_C_STAT  = HIGH;               
+          DEBUG_PRINT(F("HUM_R<HUM_L1: "));    DEBUG_PRINT(HUM_R);DEBUG_PRINT("<");  DEBUG_PRINTLN(HUM_L1); 
+          setRelayStateandpublish(); 
+    }
+  }
+}
+
+void readbutton(){
+  bool VMCreading  = digitalRead(VMC_PIN);  
+  bool PUMPreading = digitalRead(PUMP_PIN); 
+  
+  if (VMCreading != VMClastButtonState) {
+    VMClastDebounceTime = millis();
+  }
+  
+  if (PUMPreading != PUMPlastButtonState) {
+    PUMPlastDebounceTime = millis();
+  }
+  if ((millis() - VMClastDebounceTime) > VMCdebounceDelay) {
+    if (VMCreading != VMCbuttonState) { // A analyse et créer la variable si necessaire.
+        VMCbuttonState = VMCreading;
+        VMC_B_STAT  = true;
+        //countVMCbuttontime = VMC_B_TIME;
+    }else{
+        VMC_B_STAT  = false;  
+    }
+  }
+  if ((millis() - PUMPlastDebounceTime) > PUMPdebounceDelay) {
+    if (PUMPreading !=    PUMPbuttonState) {
+        PUMPbuttonState = PUMPreading;
+        PUMP_B_STAT  = true;
+        //countPUMPbuttontime = PUMP_B_TIME;
+    }else{
+        PUMP_B_STAT  = false;
+    }
+  }
+  VMClastButtonState  = VMCreading;
+  PUMPlastButtonState = PUMPreading;
+}
+
+void prep_MQTT_topic(){
+  sprintf(MQTT_CLIENT_ID, "%06X", ESP.getChipId());
+  DEBUG_PRINT(F("INFO: MQTT : "));  DEBUG_PRINTLN(MQTT_CLIENT_ID);
+  sprintf(MQTT_GET_TOPIC, "%06X/get", ESP.getChipId());
+  DEBUG_PRINT(F("INFO: MQTT : "));        DEBUG_PRINTLN(MQTT_GET_TOPIC);
+  sprintf(MQTT_SET_TOPIC, "%06X/set", ESP.getChipId());
+  DEBUG_PRINT(F("INFO: MQTT : "));        DEBUG_PRINTLN(MQTT_SET_TOPIC);
+}
